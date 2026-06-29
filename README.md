@@ -1,23 +1,25 @@
-# InsightDocs AI: Persistent Document Q&A Bot using RAG
+# InsightDocs AI: Q&A Bot using RAG
 
-InsightDocs AI is a robust, production-grade Retrieval-Augmented Generation (RAG) Q&A system built from scratch in Python. It allows users to query a collection of documents (PDF, DOCX, and TXT) in natural language and receive highly accurate, grounded answers, complete with precise source citations. The system prevents hallucinations by enforcing a strict context-only policy, ensuring it never answers questions using general training data if the documents do not support it.
+InsightDocs AI is an advanced, secure Retrieval-Augmented Generation (RAG) document assistant. It allows users to upload files (PDFs, DOCX, TXT, MD) into isolated chat sessions and ask natural language questions. The assistant retrieves relevant passages from the documents and uses an LLM to generate precise, grounded answers that include inline source and page citations, preventing hallucinations.
+---
+
+## Tech Stack
+
+The project is built entirely on Python and utilizes the following libraries:
+
+**streamlit (>=1.30.0)**:Provides the interactive web user interface, chat bubble outputs, and sidebar controls.
+**chromadb (>=0.5.0)**:A lightweight, local vector database utilized to persist document embeddings and search context.
+**pypdf (>=4.0.0)**: Extracts clean text content page-by-page from PDF files.
+**docx2txt (>=0.8)**: Extracts textual contents and layout details from Word Document (.docx) files.
+**google-generativeai (>=0.8.3)**: Official SDK for Google Gemini models to generate text-embeddings and complete Q&As.
+**openai (>=1.0.0)**: Official SDK for OpenAI models supporting GPT and text-embedding models.
+**python-dotenv (>=1.0.0)**: Loads settings and API credentials from the local .env file.
+**numpy (>=1.24.0)**![Uploading download.svg…]()
+: Handles fallback array math and vector cosine similarity computations when ChromaDB is disabled or unavailable.
 
 ---
 
-## 🛠️ Tech Stack
-
-This project uses the following tools and libraries:
-* **Core Language**: Python 3.11+
-* **Retrieval-Augmented Generation (LLM)**: Google Gemini API (`gemini-1.5-flash` or `gemini-2.5-flash`) / OpenAI API (`gpt-4o-mini` or `gpt-3.5-turbo`)
-* **Text Embeddings**: Google Gemini (`models/text-embedding-004`) / OpenAI (`text-embedding-3-small`)
-* **Vector Database**: ChromaDB (`chromadb` for persistent document indexing) with a custom **Pure-NumPy Cosine Similarity Fallback Engine**
-* **Document Ingestion**: PyPDF (`pypdf` for page-by-page extraction) and docx2txt (`docx2txt` for DOCX paragraphs)
-* **Web UI Framework**: Streamlit (`streamlit` for a premium glassmorphic dashboard)
-* **Configuration Management**: python-dotenv (`python-dotenv` for env vars)
-
----
-
-## 📐 Architecture Overview
+## Architecture Overview
 
 ```mermaid
 graph TD
@@ -34,32 +36,36 @@ graph TD
     J --> K[Grounded Answer with Citations]
 ```
 
-1. **Document Ingestion**: Scans the `data/` directory. Reads PDF files page-by-page, DOCX paragraph-by-paragraph, and TXT files. Applies custom cleaning heuristics to strip standalone page numbers and typical headers/footers.
-2. **Text Chunking**: Splits extracted text into fixed-size chunks (default: 1000 characters) with a sliding overlap (default: 200 characters) to preserve contextual boundaries. Boundaries are dynamically adjusted backwards to the nearest whitespace or punctuation to prevent splitting words in half.
-3. **Embeddings & Database Storage**: Generates embeddings in batches (default: 100 chunks per batch) using Gemini or OpenAI APIs. Chunks and embeddings are stored in a persistent local directory (`db/`) using ChromaDB or a pure-NumPy database index.
-4. **Retrieval**: Performs a cosine similarity search between the user query embedding and the stored document chunk embeddings, returning the top-$k$ most relevant chunks.
-5. **Grounded Generation**: Feeds the top-$k$ context chunks and the user query into a system-instructed prompt. The LLM is restricted to answering **only** from the context, requiring citations in the format `(Source: filename, Page/Section X)`.
-
+1.**Ingestion (src/ingestion.py)**:  Reads the uploaded files, cleans out footer/header noise (like single-page numbers or minor artifacts), and produces text sections paired with source and page metadata.
+2.**Chunking (src/chunking.py)**: Splits the extracted text into overlapping segments of uniform size.
+3.**Embedding (src/embeddings.py)**: Converts the text segments into dense vector representations using Gemini (models/text-embedding-004) or OpenAI (text-embedding-3-small).
+4.**Vector DB (src/vector_store.py)**: Stores the chunk text, vector embeddings, and metadata. By default, it uses ChromaDB (saved locally in subfolders). If Chroma fails to build, the app automatically switches to a pure-Python fallback NumPyVectorStore that serializes array indices directly to disk using pickle.
+5.**Retrieval (src/retriever.py)**: Embeds the user query and queries the database for the top-k most similar chunks using Cosine Similarity.
+6.**Generation (src/generator.py)**: Builds a grounding prompt containing only the retrieved chunks and the user's query. The LLM (Gemini or OpenAI) is instructed to answer using only the provided chunks, cite sources inline, and output a specific message if the context is insufficient.
 ---
 
-## ✂️ Chunking Strategy
+## Chunking Strategy
 
-We implemented a **Fixed-Size sliding character-based chunking strategy with dynamic alignment**:
-* **Chunk Size**: 1000 characters (~150 to 200 words)
-* **Overlap**: 200 characters (~30 to 40 words)
-* **Why**: Fixed-size chunking provides consistent granularity for embeddings. The 200-character overlap guarantees that critical context spanning across two chunks is not lost. To ensure semantic coherence, the boundary of each chunk is adjusted backward to the nearest punctuation mark (`.`, `,`, `;`, `?`, `!`) or whitespace, preventing sentences or words from being abruptly cut in half.
+**Strategy Chosen:** Overlapping sliding window chunking with punctuation boundary alignment.
+**Default Parameters:** chunk_size = 1000 characters, chunk_overlap = 200 characters.
+**Why:**
+**Context Preservation:** 1000 characters (around 150-200 words) represents an optimal block of semantic meaning (like a full paragraph or multiple sentences) for embeddings to capture.
+**Overlap Protection:** A 200-character overlap prevents critical details from being truncated or lost if a key concept lands directly on a chunk boundary.
+**Punctuation Boundary Alignment:** The chunker looks backward up to the overlap limit to split text cleanly on characters like periods, commas, or spaces. This prevents splitting words or breaking sentences mid-thought, producing high-quality retrievals.
+
 
 ---
 
 ## 💾 Embedding Model & Vector Database
 
-* **Embedding Model**: Google's `models/text-embedding-004` (768 dimensions) or OpenAI's `text-embedding-3-small` (1536 dimensions). These models are highly optimized for document retrieval tasks, yielding superior cosine similarity margins.
-* **Vector Database**: **ChromaDB** is used as our primary vector store. It is lightweight, persists natively to local disk, and supports metadata filtering and distance metrics (cosine space).
-* **NumPy Fallback Engine**: In environments where compiling ChromaDB fails due to missing C++ build tools, the system automatically falls back to a **custom NumPy-based vector store** that computes exact cosine similarity via matrix operations and persists database indexes as serialized pickle objects. This guarantees 100% portability.
+**Embedding Model:** Google's models/text-embedding-004 (768 dimensions) or OpenAI's text-embedding-3-small (1536 dimensions).
+Reason: Both models represent state-of-the-art semantic representation, providing low-cost, fast, and high-quality vector embeddings.
+**Vector Database:** ChromaDB with a native NumPy fallback.
+**Reason:** ChromaDB is an in-process database that is highly performant and requires zero configuration or external servers. However, since ChromaDB compiles binary C++ HNSW libraries, it can fail to install on some restricted environments. The inclusion of a pure-Python NumPy fallback ensures the application runs seamlessly out-of-the-box on any machine.
 
 ---
 
-## 🚀 Setup Instructions
+## Setup Instructions
 
 ### 1. Clone & Navigate to Project
 ```bash
@@ -67,35 +73,26 @@ git clone <repository-url>
 cd bot
 ```
 
-### 2. Configure Environment Variables
-Create a `.env` file in the root folder of the project. You can copy the template from `.env.example`:
-```bash
-cp .env.example .env
-```
-Open `.env` and fill in your API key:
-```ini
-# Choose either Google Gemini API or OpenAI API
-GEMINI_API_KEY=AIzaSy...
-OPENAI_API_KEY=sk-proj-...
+### 2: Create a Virtual Environment
+python -m venv venv
 
-# Provider Configuration: 'gemini' or 'openai'
-LLM_PROVIDER=openai
-EMBEDDING_PROVIDER=openai
+**Activate the environment:**
+Windows:
+venv\Scripts\activate
+macOS / Linux:
+source venv/bin/activate
 
-# Database and Chunking settings
-VECTOR_DB_DIR=db
-DATA_DIR=data
-CHUNK_SIZE=1000
-CHUNK_OVERLAP=200
-RETRIEVAL_K=4
-```
 
 ### 3. Install Dependencies
 ```bash
 pip install -r requirements.txt
 ```
 
----
+### 4: Configure Environment Variables
+Create a file named .env in the root directory by copying the example:
+copy .env.example .env
+Open .env and fill in your API keys
+
 
 ## 🖥️ Running the Bot
 
@@ -118,11 +115,34 @@ python query.py "What are the core objectives of Employee Attrition project?"
 ### 3. Run Streamlit Web Dashboard
 Launch the premium web UI with:
 ```bash
-streamlit run src/app.py
+python -m streamlit run src/app.py
 ```
-Open the URL printed in your console (usually `http://localhost:8501`) to experience the custom glassmorphism web dashboard.
+Open the URL printed in your console (usually `http://localhost:8501`) 
 
 ---
+
+### 7. Environment Variables Config
+The .env configuration file supports the following parameters:
+# API Keys (Never commit actual keys to source control)
+OPENAI_API_KEY=your_openai_api_key_here
+GEMINI_API_KEY=your_gemini_api_key_here
+
+# Providers Config
+LLM_PROVIDER=openai           # Choice: "openai" or "gemini"
+EMBEDDING_PROVIDER=openai     # Choice: "openai" or "gemini"
+
+# Models Config
+OPENAI_MODEL=gpt-4o-mini
+OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+GEMINI_MODEL=gemini-1.5-flash
+GEMINI_EMBEDDING_MODEL=models/text-embedding-004
+
+# Database and Ingestion Parameters
+VECTOR_DB_DIR=db
+DATA_DIR=data
+CHUNK_SIZE=1000
+CHUNK_OVERLAP=200
+RETRIEVAL_K=4
 
 ## ❓ Example Queries
 
