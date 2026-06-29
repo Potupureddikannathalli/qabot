@@ -8,14 +8,20 @@ InsightDocs AI is an advanced, secure Retrieval-Augmented Generation (RAG) docum
 The project is built entirely on Python and utilizes the following libraries:
 
 **streamlit (>=1.30.0)**:Provides the interactive web user interface, chat bubble outputs, and sidebar controls.
+
 **chromadb (>=0.5.0)**:A lightweight, local vector database utilized to persist document embeddings and search context.
+
 **pypdf (>=4.0.0)**: Extracts clean text content page-by-page from PDF files.
+
 **docx2txt (>=0.8)**: Extracts textual contents and layout details from Word Document (.docx) files.
+
 **google-generativeai (>=0.8.3)**: Official SDK for Google Gemini models to generate text-embeddings and complete Q&As.
+
 **openai (>=1.0.0)**: Official SDK for OpenAI models supporting GPT and text-embedding models.
+
 **python-dotenv (>=1.0.0)**: Loads settings and API credentials from the local .env file.
-**numpy (>=1.24.0)**![Uploading download.svg…]()
-: Handles fallback array math and vector cosine similarity computations when ChromaDB is disabled or unavailable.
+
+**numpy (>=1.24.0)**: Handles fallback array math and vector cosine similarity computations when ChromaDB is disabled or unavailable.
 
 ---
 
@@ -37,20 +43,31 @@ graph TD
 ```
 
 1.**Ingestion (src/ingestion.py)**:  Reads the uploaded files, cleans out footer/header noise (like single-page numbers or minor artifacts), and produces text sections paired with source and page metadata.
+
 2.**Chunking (src/chunking.py)**: Splits the extracted text into overlapping segments of uniform size.
+
 3.**Embedding (src/embeddings.py)**: Converts the text segments into dense vector representations using Gemini (models/text-embedding-004) or OpenAI (text-embedding-3-small).
+
 4.**Vector DB (src/vector_store.py)**: Stores the chunk text, vector embeddings, and metadata. By default, it uses ChromaDB (saved locally in subfolders). If Chroma fails to build, the app automatically switches to a pure-Python fallback NumPyVectorStore that serializes array indices directly to disk using pickle.
+
 5.**Retrieval (src/retriever.py)**: Embeds the user query and queries the database for the top-k most similar chunks using Cosine Similarity.
+
 6.**Generation (src/generator.py)**: Builds a grounding prompt containing only the retrieved chunks and the user's query. The LLM (Gemini or OpenAI) is instructed to answer using only the provided chunks, cite sources inline, and output a specific message if the context is insufficient.
+
 ---
 
 ## Chunking Strategy
 
 **Strategy Chosen:** Overlapping sliding window chunking with punctuation boundary alignment.
+
 **Default Parameters:** chunk_size = 1000 characters, chunk_overlap = 200 characters.
+
 **Why:**
+
 **Context Preservation:** 1000 characters (around 150-200 words) represents an optimal block of semantic meaning (like a full paragraph or multiple sentences) for embeddings to capture.
+
 **Overlap Protection:** A 200-character overlap prevents critical details from being truncated or lost if a key concept lands directly on a chunk boundary.
+
 **Punctuation Boundary Alignment:** The chunker looks backward up to the overlap limit to split text cleanly on characters like periods, commas, or spaces. This prevents splitting words or breaking sentences mid-thought, producing high-quality retrievals.
 
 
@@ -59,8 +76,11 @@ graph TD
 ## 💾 Embedding Model & Vector Database
 
 **Embedding Model:** Google's models/text-embedding-004 (768 dimensions) or OpenAI's text-embedding-3-small (1536 dimensions).
-Reason: Both models represent state-of-the-art semantic representation, providing low-cost, fast, and high-quality vector embeddings.
+
+**Reason:** Both models represent state-of-the-art semantic representation, providing low-cost, fast, and high-quality vector embeddings.
+
 **Vector Database:** ChromaDB with a native NumPy fallback.
+
 **Reason:** ChromaDB is an in-process database that is highly performant and requires zero configuration or external servers. However, since ChromaDB compiles binary C++ HNSW libraries, it can fail to install on some restricted environments. The inclusion of a pure-Python NumPy fallback ensures the application runs seamlessly out-of-the-box on any machine.
 
 ---
