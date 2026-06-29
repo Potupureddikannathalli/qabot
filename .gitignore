@@ -1,0 +1,25 @@
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Vector database directory (persistent store)
+db/
+*.db
+
+# Raw data and user uploaded documents directory
+data/
+
+# OS specific files
+.DS_Store
+Thumbs.db
+desktop.ini
